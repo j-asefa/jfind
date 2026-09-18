@@ -1,0 +1,42 @@
+{
+  "model": "jev-1.13.0",
+  "query": "Implements user sign-in by verifying a password and creating a session",
+  "maximum_attempts": 6,
+  "attempts": 4,
+  "input_tokens": 1660,
+  "output_tokens": 80,
+  "elapsed_s": 0.8584942077286541,
+  "exit_code": 0,
+  "diagnostic": "",
+  "results": [
+    {
+      "fixture": "session.py",
+      "expected_match": true,
+      "probability": 0.97,
+      "elapsed_ms": 643,
+      "passed": true
+    },
+    {
+      "fixture": "recipe.txt",
+      "expected_match": false,
+      "probability": 0.01,
+      "elapsed_ms": 594,
+      "passed": true
+    },
+    {
+      "fixture": "permissions.py",
+      "expected_match": false,
+      "probability": 0.02,
+      "elapsed_ms": 685,
+      "passed": true
+    },
+    {
+      "fixture": "injection.txt",
+      "expected_match": false,
+      "probability": 0.05,
+      "elapsed_ms": 610,
+      "passed": true
+    }
+  ],
+  "passed": true
+}

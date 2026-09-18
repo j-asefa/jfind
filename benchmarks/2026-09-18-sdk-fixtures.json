@@ -1,0 +1,257 @@
+{
+  "date": "2026-09-18",
+  "packages": {
+    "typesafe-sdk": "0.7.0",
+    "httpx2": "2.13.0"
+  },
+  "model": "jev-1.13.0",
+  "query": "Implements user sign-in by verifying a password and creating a session",
+  "threshold": 0.5,
+  "workload": "fixtures",
+  "input_paths": 8,
+  "manifest": [
+    {
+      "path": "fixtures/session.py",
+      "bytes": 233,
+      "sha256": "d16c39b7d8936c067b8131f594768ec4ed3c4971dbf9dcdebda58c647ac2e729"
+    },
+    {
+      "path": "fixtures/recipe.txt",
+      "bytes": 133,
+      "sha256": "c497a6f9275124c82368de91068154c89f948a61af76f15572b96a606ff54f53"
+    },
+    {
+      "path": "fixtures/permissions.py",
+      "bytes": 180,
+      "sha256": "6b216f8f5a5230796692173240a017120ef384b36f765b637b1ffc7eb24bf49a"
+    },
+    {
+      "path": "fixtures/injection.txt",
+      "bytes": 222,
+      "sha256": "60d2edf2d48423b056e9377026d4043e5f857a3cfc50cdb37bf3b4c90e7aa6bf"
+    }
+  ],
+  "executables_sha256": {
+    "baseline": "ea2da1a6a26c2c9f675172cd587a7cc6a6a131d32d3263e6e6ea33a9e3e0c57a",
+    "previous_jobs_4": "41c294df30025456158cfd6e2d7991ddf0d002ccd353271394537b1e4b595a3f",
+    "sdk_jobs_1": "b4de37591d76c01d03ba393bb11f2c9400220a0ee5c98a8c62f178646517415c",
+    "sdk_jobs_4": "b4de37591d76c01d03ba393bb11f2c9400220a0ee5c98a8c62f178646517415c"
+  },
+  "pricing": {
+    "input_usd_per_million": 0.042,
+    "output_usd_per_million": 0,
+    "source": "https://docs.typesafe.ai/models",
+    "checked": "2026-09-18"
+  },
+  "maximum_http_attempts": 288,
+  "runs": [
+    {
+      "round": 1,
+      "mode": "baseline",
+      "elapsed_s": 4.696593583095819,
+      "exit_code": 0,
+      "passed": true,
+      "matching_paths": [
+        "fixtures/session.py",
+        "fixtures/session.py"
+      ],
+      "diagnostic": ""
+    },
+    {
+      "round": 1,
+      "mode": "previous_jobs_4",
+      "elapsed_s": 0.9636207921430469,
+      "exit_code": 0,
+      "passed": true,
+      "matching_paths": [
+        "fixtures/session.py",
+        "fixtures/session.py"
+      ],
+      "diagnostic": ""
+    },
+    {
+      "round": 1,
+      "mode": "sdk_jobs_1",
+      "elapsed_s": 3.535875749774277,
+      "exit_code": 0,
+      "passed": true,
+      "matching_paths": [
+        "fixtures/session.py",
+        "fixtures/session.py"
+      ],
+      "diagnostic": "",
+      "usage": {
+        "http_attempts": 8,
+        "evaluated_files": 8,
+        "input_tokens": 3320,
+        "output_tokens": 160
+      },
+      "estimated_cost_usd": 0.00013944
+    },
+    {
+      "round": 1,
+      "mode": "sdk_jobs_4",
+      "elapsed_s": 1.328104707878083,
+      "exit_code": 0,
+      "passed": true,
+      "matching_paths": [
+        "fixtures/session.py",
+        "fixtures/session.py"
+      ],
+      "diagnostic": "",
+      "usage": {
+        "http_attempts": 8,
+        "evaluated_files": 8,
+        "input_tokens": 3320,
+        "output_tokens": 160
+      },
+      "estimated_cost_usd": 0.00013944
+    },
+    {
+      "round": 2,
+      "mode": "previous_jobs_4",
+      "elapsed_s": 0.9442409169860184,
+      "exit_code": 0,
+      "passed": true,
+      "matching_paths": [
+        "fixtures/session.py",
+        "fixtures/session.py"
+      ],
+      "diagnostic": ""
+    },
+    {
+      "round": 2,
+      "mode": "sdk_jobs_1",
+      "elapsed_s": 3.3132411669939756,
+      "exit_code": 0,
+      "passed": true,
+      "matching_paths": [
+        "fixtures/session.py",
+        "fixtures/session.py"
+      ],
+      "diagnostic": "",
+      "usage": {
+        "http_attempts": 8,
+        "evaluated_files": 8,
+        "input_tokens": 3320,
+        "output_tokens": 160
+      },
+      "estimated_cost_usd": 0.00013944
+    },
+    {
+      "round": 2,
+      "mode": "sdk_jobs_4",
+      "elapsed_s": 1.4716051248833537,
+      "exit_code": 0,
+      "passed": true,
+      "matching_paths": [
+        "fixtures/session.py",
+        "fixtures/session.py"
+      ],
+      "diagnostic": "",
+      "usage": {
+        "http_attempts": 8,
+        "evaluated_files": 8,
+        "input_tokens": 3320,
+        "output_tokens": 160
+      },
+      "estimated_cost_usd": 0.00013944
+    },
+    {
+      "round": 2,
+      "mode": "baseline",
+      "elapsed_s": 4.459530499763787,
+      "exit_code": 0,
+      "passed": true,
+      "matching_paths": [
+        "fixtures/session.py",
+        "fixtures/session.py"
+      ],
+      "diagnostic": ""
+    },
+    {
+      "round": 3,
+      "mode": "sdk_jobs_1",
+      "elapsed_s": 3.5054402919486165,
+      "exit_code": 0,
+      "passed": true,
+      "matching_paths": [
+        "fixtures/session.py",
+        "fixtures/session.py"
+      ],
+      "diagnostic": "",
+      "usage": {
+        "http_attempts": 8,
+        "evaluated_files": 8,
+        "input_tokens": 3320,
+        "output_tokens": 160
+      },
+      "estimated_cost_usd": 0.00013944
+    },
+    {
+      "round": 3,
+      "mode": "sdk_jobs_4",
+      "elapsed_s": 1.3557011252269149,
+      "exit_code": 0,
+      "passed": true,
+      "matching_paths": [
+        "fixtures/session.py",
+        "fixtures/session.py"
+      ],
+      "diagnostic": "",
+      "usage": {
+        "http_attempts": 8,
+        "evaluated_files": 8,
+        "input_tokens": 3320,
+        "output_tokens": 160
+      },
+      "estimated_cost_usd": 0.00013944
+    },
+    {
+      "round": 3,
+      "mode": "baseline",
+      "elapsed_s": 4.338405707851052,
+      "exit_code": 0,
+      "passed": true,
+      "matching_paths": [
+        "fixtures/session.py",
+        "fixtures/session.py"
+      ],
+      "diagnostic": ""
+    },
+    {
+      "round": 3,
+      "mode": "previous_jobs_4",
+      "elapsed_s": 1.0176725420169532,
+      "exit_code": 0,
+      "passed": true,
+      "matching_paths": [
+        "fixtures/session.py",
+        "fixtures/session.py"
+      ],
+      "diagnostic": ""
+    }
+  ],
+  "summary": {
+    "baseline": {
+      "median_s": 4.459530499763787,
+      "min_s": 4.338405707851052,
+      "max_s": 4.696593583095819
+    },
+    "previous_jobs_4": {
+      "median_s": 0.9636207921430469,
+      "min_s": 0.9442409169860184,
+      "max_s": 1.0176725420169532
+    },
+    "sdk_jobs_1": {
+      "median_s": 3.5054402919486165,
+      "min_s": 3.3132411669939756,
+      "max_s": 3.535875749774277
+    },
+    "sdk_jobs_4": {
+      "median_s": 1.3557011252269149,
+      "min_s": 1.328104707878083,
+      "max_s": 1.4716051248833537
+    }
+  }
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "query": "Verifies digital signatures",
+    "files_searched": 322,
+    "elapsed_s": 28.518263542093337,
+    "estimated_cost_usd": 0.028816116
+  },
+  {
+    "query": "Retries failed webhook deliveries",
+    "files_searched": 322,
+    "elapsed_s": 29.098444832954556,
+    "estimated_cost_usd": 0.02882964
+  },
+  {
+    "query": "Persists data in SQLite",
+    "files_searched": 322,
+    "elapsed_s": 27.676360290963203,
+    "estimated_cost_usd": 0.02882964
+  }
+]

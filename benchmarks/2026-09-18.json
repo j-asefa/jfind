@@ -1,0 +1,133 @@
+{
+  "date": "2026-09-18",
+  "query": "Implements user sign-in by verifying a password and creating a session",
+  "files_per_scan": 8,
+  "runs": [
+    {
+      "round": 1,
+      "mode": "baseline",
+      "elapsed_s": 5.497504916973412,
+      "exit_code": 0,
+      "passed": true,
+      "matching_fixtures": [
+        "session.py",
+        "session.py"
+      ],
+      "diagnostic": ""
+    },
+    {
+      "round": 1,
+      "mode": "jobs_1",
+      "elapsed_s": 2.6869614156894386,
+      "exit_code": 0,
+      "passed": true,
+      "matching_fixtures": [
+        "session.py",
+        "session.py"
+      ],
+      "diagnostic": ""
+    },
+    {
+      "round": 1,
+      "mode": "jobs_4",
+      "elapsed_s": 1.1703331670723855,
+      "exit_code": 0,
+      "passed": true,
+      "matching_fixtures": [
+        "session.py",
+        "session.py"
+      ],
+      "diagnostic": ""
+    },
+    {
+      "round": 2,
+      "mode": "jobs_1",
+      "elapsed_s": 2.5300118336454034,
+      "exit_code": 0,
+      "passed": true,
+      "matching_fixtures": [
+        "session.py",
+        "session.py"
+      ],
+      "diagnostic": ""
+    },
+    {
+      "round": 2,
+      "mode": "jobs_4",
+      "elapsed_s": 1.031143750064075,
+      "exit_code": 0,
+      "passed": true,
+      "matching_fixtures": [
+        "session.py",
+        "session.py"
+      ],
+      "diagnostic": ""
+    },
+    {
+      "round": 2,
+      "mode": "baseline",
+      "elapsed_s": 4.919150832574815,
+      "exit_code": 0,
+      "passed": true,
+      "matching_fixtures": [
+        "session.py",
+        "session.py"
+      ],
+      "diagnostic": ""
+    },
+    {
+      "round": 3,
+      "mode": "jobs_4",
+      "elapsed_s": 1.0203622076660395,
+      "exit_code": 0,
+      "passed": true,
+      "matching_fixtures": [
+        "session.py",
+        "session.py"
+      ],
+      "diagnostic": ""
+    },
+    {
+      "round": 3,
+      "mode": "baseline",
+      "elapsed_s": 4.42220920836553,
+      "exit_code": 0,
+      "passed": true,
+      "matching_fixtures": [
+        "session.py",
+        "session.py"
+      ],
+      "diagnostic": ""
+    },
+    {
+      "round": 3,
+      "mode": "jobs_1",
+      "elapsed_s": 2.4451349996961653,
+      "exit_code": 0,
+      "passed": true,
+      "matching_fixtures": [
+        "session.py",
+        "session.py"
+      ],
+      "diagnostic": ""
+    }
+  ],
+  "maximum_http_attempts": 72,
+  "summary": {
+    "baseline": {
+      "median_s": 4.919150832574815,
+      "min_s": 4.42220920836553,
+      "max_s": 5.497504916973412
+    },
+    "jobs_1": {
+      "median_s": 2.5300118336454034,
+      "min_s": 2.4451349996961653,
+      "max_s": 2.6869614156894386
+    },
+    "jobs_4": {
+      "median_s": 1.031143750064075,
+      "min_s": 1.0203622076660395,
+      "max_s": 1.1703331670723855
+    }
+  }
+}
