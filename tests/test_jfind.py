@@ -1,4 +1,5 @@
 """Offline checks: python3 -m unittest discover -s tests -v"""
+import asyncio
 import concurrent.futures
 import contextlib
 import http.server
@@ -9,11 +10,13 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
-from unittest.mock import Mock, patch
-import urllib.error
+from unittest.mock import AsyncMock, Mock, patch
+
+import httpx2
 
 ROOT = Path(__file__).resolve().parents[1]
 loader = importlib.machinery.SourceFileLoader("jfind", str(ROOT / "jfind"))
@@ -46,10 +49,10 @@ def server(responses):
             pass
 
     httpd = http.server.HTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
     thread.start()
     try:
-        with patch.object(jfind, "ENDPOINT", f"http://127.0.0.1:{httpd.server_port}/evaluate"):
+        with patch.object(jfind, "BASE_URL", f"http://127.0.0.1:{httpd.server_port}"):
             yield seen
     finally:
         httpd.shutdown()
@@ -61,7 +64,7 @@ class CliTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="jfind-minimal-test-")
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
 
     def file(self, name="source.txt", text="ordinary text"):
         path = self.root / name
@@ -70,11 +73,11 @@ class CliTests(unittest.TestCase):
         return path
 
     def run_search(self, args, data=b"", probabilities=(0.95,)):
-        fake = Mock()
+        fake = Mock(evaluate=AsyncMock(), aclose=AsyncMock())
         fake.evaluate.side_effect = probabilities
         output, errors = io.BytesIO(), io.StringIO()
         with patch.object(jfind, "Jev", return_value=fake):
-            code = jfind.main(args, stdin=io.BytesIO(data), stdout=output, stderr=errors)
+            code = jfind.main(["--jobs", "1"] + args, stdin=io.BytesIO(data), stdout=output, stderr=errors)
         return code, output.getvalue(), errors.getvalue(), fake
 
     def test_explicit_root_ignores_stdin_and_prints_only_matches(self):
@@ -107,7 +110,9 @@ class CliTests(unittest.TestCase):
         self.assertEqual((code, out, err), (0, b"", ""))
 
     def test_nul_pipeline_preserves_unusual_path_bytes_and_order(self):
-        names = [b"space tab\t'quote.txt", b"-dash.txt", b"line\nname.txt", b"invalid-\xff.txt", "café.txt".encode()]
+        names = [b"space tab\t'quote.txt", b"-dash.txt", b"line\nname.txt", "café.txt".encode()]
+        if sys.platform != "darwin":  # APFS requires UTF-8 filenames.
+            names.append(b"invalid-\xff.txt")
         paths = [os.fsencode(self.root) + b"/" + name for name in names]
         for path in paths:
             with open(path, "wb") as f:
@@ -179,11 +184,21 @@ class CliTests(unittest.TestCase):
         with patch.object(jfind, "open_regular", mutate_on_open), self.assertRaises(jfind.Failure):
             jfind.read_text(os.fsencode(path))
 
+    def test_private_key_filter_does_not_skip_its_own_source(self):
+        self.assertIsNotNone(jfind.read_text(os.fsencode(ROOT / "jfind")))
+        fragments = 'Checks "-----BEGIN " and "PRIVATE KEY-----" as separate strings.'
+        self.assertEqual(jfind.read_text(os.fsencode(self.file(text=fragments))), fragments)
+        for kind in ("", "RSA ", "ENCRYPTED ", "OPENSSH "):
+            marker = "-----BEGIN " + kind + "PRIVATE KEY-----"
+            path = self.file(text='embedded_key = "' + marker + '\\nsynthetic"')
+            self.assertIsNone(jfind.read_text(os.fsencode(path)))
+
     def test_threshold_boundary_and_invalid_arguments(self):
         a, b = self.file("a.txt"), self.file("b.txt")
         code, out, _, _ = self.run_search(["--threshold", "0.9", "q", str(a), str(b)], probabilities=(0.9, 0.899))
         self.assertEqual((code, out), (0, os.fsencode(a) + b"\n"))
-        for args in (["q", "--threshold", "nan"], ["q", "--max-requests", "0"], [" "]):
+        for args in (["q", "--threshold", "nan"], ["q", "--max-requests", "0"],
+                     ["q", "--jobs", "0"], ["q", "--jobs", "33"], [" "]):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
                 jfind.main(args)
             self.assertEqual(raised.exception.code, 2)
@@ -198,20 +213,20 @@ class CliTests(unittest.TestCase):
         output.fileno.side_effect = OSError
         output.isatty.return_value = False
         output.write.side_effect = BrokenPipeError
-        fake = Mock()
+        fake = Mock(evaluate=AsyncMock(), aclose=AsyncMock())
         fake.evaluate.return_value = 1.0
         errors = io.StringIO()
         with patch.object(jfind, "Jev", return_value=fake), self.assertRaises(BrokenPipeError):
             jfind.main(["q", str(path)], stdout=output, stderr=errors)
         self.assertEqual(errors.getvalue(), "")
 
-    def test_missing_key_is_actionable_and_help_needs_no_setup(self):
+    def test_missing_key_is_actionable_and_help_needs_no_key(self):
         env = dict(os.environ)
         env.pop("typesafe_api_key", None)
         for arg in ("--help", "--version"):
-            result = subprocess.run([str(ROOT / "jfind"), arg], cwd=self.root, env=env, capture_output=True)
+            result = subprocess.run([sys.executable, str(ROOT / "jfind"), arg], cwd=self.root, env=env, capture_output=True)
             self.assertEqual(result.returncode, 0)
-        result = subprocess.run([str(ROOT / "jfind"), "q", str(self.file())], env=env, capture_output=True)
+        result = subprocess.run([sys.executable, str(ROOT / "jfind"), "q", str(self.file())], env=env, capture_output=True)
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, b"")
         self.assertIn(b"set typesafe_api_key", result.stderr)
@@ -227,68 +242,140 @@ class CliTests(unittest.TestCase):
         fake.evaluate.assert_not_called()
 
 
-class ProviderTests(unittest.TestCase):
-    def test_real_wire_contract_and_usage(self):
+class ProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_real_wire_contract_and_usage(self):
         with server([(200, {}, json.dumps(answer()).encode())]) as seen:
-            client = jfind.Jev("synthetic-test-key", 3)
-            self.assertEqual(client.evaluate("implements sign-in", "verify a password"), 0.95)
+            async with contextlib.aclosing(jfind.Jev("synthetic-test-key", 3)) as client:
+                self.assertEqual(await client.evaluate("implements sign-in", "verify a password"), 0.95)
         self.assertEqual(len(seen), 1)
-        _, headers, body = seen[0]
+        path, headers, body = seen[0]
+        self.assertEqual(path, "/v1/systemone")
         self.assertEqual(headers["Authorization"], "Bearer synthetic-test-key")
         self.assertEqual(body["state"], {"content": "verify a password"})
         self.assertEqual(body["questions"]["matches"]["instructions"]["retrieval_criterion"], "implements sign-in")
-        self.assertEqual((client.attempts, client.input_tokens), (1, 42))
+        self.assertEqual((client.attempts, client.budget.input_tokens), (1, 42))
 
-    def test_authentication_and_redirects_are_not_retried(self):
+    async def test_authentication_and_redirects_are_not_retried(self):
         for code in (401, 403, 302, 422):
             with server([(code, {"Location": "/elsewhere"}, b"private echoed content")]) as seen:
-                client = jfind.Jev("synthetic", 3)
-                with self.assertRaises(jfind.Failure) as raised:
-                    client.evaluate("q", "text")
+                async with contextlib.aclosing(jfind.Jev("synthetic", 3)) as client:
+                    with self.assertRaises(jfind.Failure) as raised:
+                        await client.evaluate("q", "text")
             self.assertEqual(len(seen), 1)
             self.assertNotIn("private", str(raised.exception))
             self.assertNotIn("synthetic", str(raised.exception))
 
-    def test_retry_after_and_budget_count_attempts(self):
+    async def test_retry_after_and_budget_count_attempts(self):
         responses = [(429, {"Retry-After": "0"}, b""), (200, {}, json.dumps(answer()).encode())]
         with server(responses) as seen:
-            client = jfind.Jev("synthetic", 2)
-            self.assertEqual(client.evaluate("q", "text"), 0.95)
-            self.assertEqual(client.attempts, 2)
+            async with contextlib.aclosing(jfind.Jev("synthetic", 2)) as client:
+                self.assertEqual(await client.evaluate("q", "text"), 0.95)
+                self.assertEqual(client.attempts, 2)
+                self.assertEqual(client.budget.evaluated, 1)
         self.assertEqual(len(seen), 2)
         with server(responses) as seen:
-            client = jfind.Jev("synthetic", 1)
-            with self.assertRaises(jfind.StopSearch):
-                client.evaluate("q", "text")
+            async with contextlib.aclosing(jfind.Jev("synthetic", 1)) as client:
+                with self.assertRaises(jfind.StopSearch):
+                    await client.evaluate("q", "text")
         self.assertEqual(len(seen), 1)
         with server([(529, {"Retry-After": "60"}, b"")]) as seen:
-            with self.assertRaises(jfind.Failure):
-                jfind.Jev("synthetic", 3).evaluate("q", "text")
+            async with contextlib.aclosing(jfind.Jev("synthetic", 3)) as client:
+                with self.assertRaises(jfind.Failure):
+                    await client.evaluate("q", "text")
         self.assertEqual(len(seen), 1)
 
-    def test_malformed_probabilities_and_models_are_rejected(self):
-        client = jfind.Jev("synthetic", 3)
+    async def test_malformed_probabilities_and_models_are_rejected(self):
         values = [answer(p) for p in (-0.1, 1.1, True, "0.9", float("nan"))]
         values += [{}, [], {**answer(), "model": "unexpected"}, {**answer(), "usage": {}}]
+        values += [{**answer(), "usage": {"input_tokens": -1, "output_tokens": 1}},
+                   {**answer(), "answers": {"other": answer()["answers"]["matches"]}}]
         for value in values:
-            with self.assertRaises(jfind.Failure):
-                client.validate(json.dumps(value).encode())
+            transport = httpx2.MockTransport(lambda request: httpx2.Response(200, content=json.dumps(value)))
+            async with contextlib.aclosing(jfind.Jev("synthetic", 3, transport=transport)) as client:
+                with self.assertRaises(jfind.Failure):
+                    await client.evaluate("q", "text")
+                self.assertEqual(client.budget.evaluated, 0)
 
-    def test_transport_retries_are_finite_and_redacted(self):
-        client = jfind.Jev("synthetic", 10)
-        client.opener = Mock()
-        client.opener.open.side_effect = urllib.error.URLError("synthetic secret echoed")
-        with patch.object(jfind.time, "sleep"), self.assertRaises(jfind.Failure) as raised:
-            client.evaluate("q", "text")
+    async def test_transport_retries_are_finite_and_redacted(self):
+        requests = []
+
+        def fail(request):
+            requests.append(request)
+            raise httpx2.ConnectError("synthetic secret echoed")
+
+        async with contextlib.aclosing(jfind.Jev("synthetic", 10, transport=httpx2.MockTransport(fail))) as client:
+            with self.assertRaises(jfind.Failure) as raised:
+                await client.evaluate("q", "text")
         self.assertEqual(client.attempts, 3)
         self.assertNotIn("synthetic", str(raised.exception))
-        self.assertEqual(client.opener.open.call_args.kwargs["timeout"], 20)
+        self.assertTrue(all(request.extensions["timeout"]["read"] == 20 for request in requests))
 
-    def test_context_limit_fails_before_dispatch(self):
-        client = jfind.Jev("synthetic", 10)
-        with self.assertRaises(jfind.Failure):
-            client.evaluate("q", "界" * 11_000)
+    async def test_context_limit_fails_before_dispatch(self):
+        transport = httpx2.MockTransport(lambda _: self.fail("oversized request was sent"))
+        async with contextlib.aclosing(jfind.Jev("synthetic", 10, transport=transport)) as client:
+            with self.assertRaises(jfind.Failure):
+                await client.evaluate("q", "界" * 11_000)
         self.assertEqual(client.attempts, 0)
+
+    async def test_cancelling_sdk_retry_wait_stops_further_attempts(self):
+        attempted = asyncio.Event()
+
+        def respond(request):
+            attempted.set()
+            return httpx2.Response(429, headers={"Retry-After": "20"}, json={})
+
+        async with contextlib.aclosing(jfind.Jev("synthetic", 3, transport=httpx2.MockTransport(respond))) as client:
+            task = asyncio.create_task(client.evaluate("q", "text"))
+            await asyncio.wait_for(attempted.wait(), 1)
+            await asyncio.sleep(0)
+            self.assertFalse(task.done(), "the SDK should be waiting before retrying")
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 1)
+            self.assertEqual(client.attempts, 1)
+
+    async def test_socks_proxy_environment_respects_no_proxy(self):
+        for proxy_name, bypass_name in (("ALL_PROXY", "NO_PROXY"), ("all_proxy", "no_proxy")):
+            with self.subTest(proxy_name=proxy_name):
+                env = {proxy_name: "socks5://127.0.0.1:1", bypass_name: "127.0.0.1"}
+                with patch.dict(os.environ, env, clear=True), server([
+                        (200, {}, json.dumps(answer()).encode())]) as seen:
+                    async with contextlib.aclosing(jfind.Jev("synthetic", 1)) as client:
+                        self.assertEqual(await client.evaluate("q", "text"), 0.95)
+                self.assertEqual(len(seen), 1)
+
+    async def test_https_proxy_receives_no_origin_api_key(self):
+        seen = []
+
+        class Proxy(http.server.BaseHTTPRequestHandler):
+            def do_CONNECT(self):
+                seen.append((self.path, self.headers))
+                self.send_error(502)
+
+            def log_message(self, *args):
+                pass
+
+        httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Proxy)
+        thread = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        proxy = f"http://user:password@127.0.0.1:{httpd.server_port}"
+        try:
+            with patch.dict(os.environ, {"https_proxy": proxy, "HTTPS_PROXY": proxy,
+                                         "all_proxy": "socks5://127.0.0.1:1",
+                                         "ALL_PROXY": "socks5://127.0.0.1:1",
+                                         "no_proxy": "", "NO_PROXY": ""}):
+                async with contextlib.aclosing(jfind.Jev("synthetic-key", 1)) as client:
+                    with self.assertRaises(jfind.RequestLimit):
+                        await client.evaluate("q", "text")
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            thread.join()
+        self.assertEqual(len(seen), 1)
+        destination, headers = seen[0]
+        self.assertEqual(destination, "api.typesafe.ai:443")
+        self.assertEqual(headers["Proxy-Authorization"], "Basic dXNlcjpwYXNzd29yZA==")
+        self.assertNotIn("Authorization", headers)
 
 
 if __name__ == "__main__":

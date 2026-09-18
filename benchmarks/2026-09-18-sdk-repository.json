@@ -1,0 +1,166 @@
+{
+  "date": "2026-09-18",
+  "packages": {
+    "typesafe-sdk": "0.7.0",
+    "httpx2": "2.13.0"
+  },
+  "model": "jev-1.13.0",
+  "query": "Implements bounded concurrency for API requests",
+  "threshold": 0.5,
+  "workload": "repository",
+  "input_paths": 17,
+  "manifest": [
+    {
+      "path": ".gitignore",
+      "bytes": 42,
+      "sha256": "62883da8ae1a99cd0922e318bfd6a85811896c702b1d96e40cc53b736fe6ba33"
+    },
+    {
+      "path": "README.md",
+      "bytes": 10175,
+      "sha256": "26992ab26506ca3280da6ad213e7fb74b91b73f1753a22932625235ac1e1ec2c"
+    },
+    {
+      "path": "VERIFICATION.md",
+      "bytes": 7614,
+      "sha256": "260bed148e8561074793605042b512662922fa7d6a9b849fdc6d8c509732faa1"
+    },
+    {
+      "path": "benchmarks/2026-09-18-sdk-fixtures.json",
+      "bytes": 6394,
+      "sha256": "969ec10beead1d96b4cc58daa5bc2e7b621a4b609e3874d8501c5c6b1c0d1681"
+    },
+    {
+      "path": "benchmarks/2026-09-18-sdk-retry-observation.json",
+      "bytes": 5414,
+      "sha256": "857f60e64ec2bca76ef62b5a77e2405daf053226589ca24e17fde065e1b12485"
+    },
+    {
+      "path": "benchmarks/2026-09-18-sdk-smoke.json",
+      "bytes": 910,
+      "sha256": "090a7d990cb90ff11cc348af1fc4eb5f72fe1124bd754e5848eabc6c77c683db"
+    },
+    {
+      "path": "benchmarks/2026-09-18.json",
+      "bytes": 2868,
+      "sha256": "f9502c315e6e4ff5cda51b37b1575f19b36843c31a33b0bd56d779ee688e0581"
+    },
+    {
+      "path": "fixtures/injection.txt",
+      "bytes": 222,
+      "sha256": "60d2edf2d48423b056e9377026d4043e5f857a3cfc50cdb37bf3b4c90e7aa6bf"
+    },
+    {
+      "path": "fixtures/permissions.py",
+      "bytes": 180,
+      "sha256": "6b216f8f5a5230796692173240a017120ef384b36f765b637b1ffc7eb24bf49a"
+    },
+    {
+      "path": "fixtures/recipe.txt",
+      "bytes": 133,
+      "sha256": "c497a6f9275124c82368de91068154c89f948a61af76f15572b96a606ff54f53"
+    },
+    {
+      "path": "fixtures/session.py",
+      "bytes": 233,
+      "sha256": "d16c39b7d8936c067b8131f594768ec4ed3c4971dbf9dcdebda58c647ac2e729"
+    },
+    {
+      "path": "jfind",
+      "bytes": 18240,
+      "sha256": "b4de37591d76c01d03ba393bb11f2c9400220a0ee5c98a8c62f178646517415c"
+    },
+    {
+      "path": "requirements.txt",
+      "bytes": 37,
+      "sha256": "e9949509b38f75babe23b9f02489a5ef67bc4a132c91560fa91e00eba500ac82"
+    },
+    {
+      "path": "tests/benchmark.py",
+      "bytes": 6122,
+      "sha256": "97b84815f43dff0dc1639fa918e77cc0165d8b7818251e56b726764dd61a6489"
+    },
+    {
+      "path": "tests/live.py",
+      "bytes": 3015,
+      "sha256": "905381db682e21ab5d2fc682334b4f48f8211ad61d3d2d3580b7e41868237675"
+    },
+    {
+      "path": "tests/test_concurrency.py",
+      "bytes": 13346,
+      "sha256": "07cad6d37e0a74b7732abb3929ba2c3d49703db2077df7684cd1a8d1c5aac235"
+    },
+    {
+      "path": "tests/test_jfind.py",
+      "bytes": 17747,
+      "sha256": "12723b0a1bfbe7ffc0b423a3a7289ef5cc4131bb30d46e882c98f2989c3f4da0"
+    }
+  ],
+  "executables_sha256": {
+    "sdk_jobs_1": "b4de37591d76c01d03ba393bb11f2c9400220a0ee5c98a8c62f178646517415c",
+    "sdk_jobs_4": "b4de37591d76c01d03ba393bb11f2c9400220a0ee5c98a8c62f178646517415c"
+  },
+  "pricing": {
+    "input_usd_per_million": 0.042,
+    "output_usd_per_million": 0,
+    "source": "https://docs.typesafe.ai/models",
+    "checked": "2026-09-18"
+  },
+  "maximum_http_attempts": 102,
+  "runs": [
+    {
+      "round": 1,
+      "mode": "sdk_jobs_1",
+      "elapsed_s": 6.337976791895926,
+      "exit_code": 0,
+      "passed": true,
+      "matching_paths": [
+        "README.md",
+        "VERIFICATION.md",
+        "jfind",
+        "tests/test_concurrency.py"
+      ],
+      "diagnostic": "",
+      "usage": {
+        "http_attempts": 15,
+        "evaluated_files": 15,
+        "input_tokens": 26239,
+        "output_tokens": 300
+      },
+      "estimated_cost_usd": 0.001102038
+    },
+    {
+      "round": 1,
+      "mode": "sdk_jobs_4",
+      "elapsed_s": 2.022801708895713,
+      "exit_code": 0,
+      "passed": true,
+      "matching_paths": [
+        "README.md",
+        "VERIFICATION.md",
+        "jfind",
+        "tests/test_concurrency.py"
+      ],
+      "diagnostic": "",
+      "usage": {
+        "http_attempts": 15,
+        "evaluated_files": 15,
+        "input_tokens": 26239,
+        "output_tokens": 300
+      },
+      "estimated_cost_usd": 0.001102038
+    }
+  ],
+  "summary": {
+    "sdk_jobs_1": {
+      "median_s": 6.337976791895926,
+      "min_s": 6.337976791895926,
+      "max_s": 6.337976791895926
+    },
+    "sdk_jobs_4": {
+      "median_s": 2.022801708895713,
+      "min_s": 2.022801708895713,
+      "max_s": 2.022801708895713
+    }
+  }
+}

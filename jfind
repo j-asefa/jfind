@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
-"""Semantic file selection. Python 3.10+, standard library only."""
+"""Semantic file selection with the official TypeSafe SDK. Python 3.10+."""
 import argparse
-import email.utils
-import http.client
+import asyncio
+import contextlib
 import json
 import math
 import os
+import queue
+import re
 import select
 import stat
 import sys
-import time
-import urllib.error
-import urllib.request
+import threading
 
-VERSION = "0.1.0"
+import httpx2
+from typesafe_sdk import (
+    AsyncTypeSafeClient, Noul, RetryPolicy, TypeSafeAPIConnectionError,
+    TypeSafeAPIError, TypeSafeAPIResponseValidationError, TypeSafeError,
+)
+
+VERSION = "0.2.0"
 MODEL = "jev-1.13.0"
-ENDPOINT = "https://api.typesafe.ai/v1/systemone"
+BASE_URL = "https://api.typesafe.ai"
 MAX_FILE_BYTES = 24 * 1024
 MAX_PATH_BYTES = 64 * 1024
+MAX_RESPONSE_BYTES = 64 * 1024
 GENERATED = {b".git", b"node_modules", b"target", b"vendor", b"dist", b"build", b"__pycache__"}
 CREDENTIALS = {b"id_rsa", b"id_dsa", b"id_ecdsa", b"id_ed25519", b"credentials",
                b"credentials.json", b"secrets.json", b"secrets.yaml", b"secrets.yml"}
@@ -38,84 +45,130 @@ class StopSearch(Failure):
     """An authentication or budget failure makes further requests inappropriate."""
 
 
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
+class RequestLimit(StopSearch):
+    """Already dispatched requests may still produce ordered results."""
+
+
+class Cancelled(Exception):
+    """Internal cancellation; never a nonmatch or a user diagnostic."""
+
+
+class Budget:
+    def __init__(self, maximum):
+        self.maximum = maximum
+        self.attempts = self.evaluated = self.input_tokens = self.output_tokens = 0
+        self.lock = threading.Lock()
+        self.stopped = threading.Event()
+        self.fatal = None
+
+    def take(self):
+        with self.lock:
+            if self.stopped.is_set():
+                raise Cancelled()
+            if self.attempts >= self.maximum:
+                raise RequestLimit("request limit reached; narrow the input or set --max-requests")
+            self.attempts += 1
+
+    def fail(self, path, error):
+        with self.lock:
+            if self.fatal is None:
+                self.fatal = path, error
+            self.stopped.set()
+
+
+class LimitedResponseStream(httpx2.AsyncByteStream):
+    """Stop reading oversized bodies before HTTPX or the SDK buffers them."""
+    def __init__(self, stream):
+        self.stream = stream
+
+    async def __aiter__(self):
+        size = 0
+        async for chunk in self.stream:
+            size += len(chunk)
+            if size > MAX_RESPONSE_BYTES:
+                raise Failure("invalid TypeSafe response")
+            yield chunk
+
+    async def aclose(self):
+        await self.stream.aclose()
 
 
 class Jev:
-    def __init__(self, key, max_requests):
+    """One SDK client and connection pool shared by every evaluation in a scan."""
+    def __init__(self, key, max_requests, *, budget=None, jobs=4, transport=None):
         if not key or not key.strip() or any(not 32 <= ord(c) <= 126 for c in key):
             raise StopSearch("set typesafe_api_key to your TypeSafe API key")
-        self.key = key.strip()
-        self.max_requests = max_requests
-        self.attempts = self.input_tokens = self.output_tokens = 0
-        self.opener = urllib.request.build_opener(NoRedirect())
+        self.budget = budget if budget is not None else Budget(max_requests)
+        http = httpx2.AsyncClient(
+            timeout=20, follow_redirects=False, transport=transport,
+            headers={"Accept-Encoding": "identity"},
+            limits=httpx2.Limits(max_connections=jobs, max_keepalive_connections=jobs),
+            event_hooks={"request": [self.before_request], "response": [self.before_response]},
+        )
+        self.client = AsyncTypeSafeClient(
+            api_key=key.strip(), base_url=BASE_URL, model=MODEL, http_client=http,
+            retry=RetryPolicy(max_retries=2, timeout=30),
+        )
 
-    def evaluate(self, query, content):
-        body = json.dumps({
-            "model": MODEL, "state": {"content": content},
-            "questions": {"matches": {"type": "noul", "instructions": {
-                "task": INSTRUCTION, "retrieval_criterion": query}}},
-        }, ensure_ascii=False).encode("utf-8")
-        # UTF-8 bytes plus headroom conservatively bound both documented token limits.
-        if len(body) + 1024 > 32_000:
+    async def before_request(self, request):
+        # Count every SDK retry, not just logical calls. Validate the actual wire body.
+        if len(request.content) + 1024 > 32_000:
             raise Failure("file and query exceed the full-content request limit")
-        for attempt in range(3):
-            if self.attempts >= self.max_requests:
-                raise StopSearch("request limit reached; narrow the input or set --max-requests")
-            self.attempts += 1
-            request = urllib.request.Request(ENDPOINT, data=body, headers={
-                "Authorization": "Bearer " + self.key, "Content-Type": "application/json",
-            }, method="POST")
-            delay = 0.5 * (2 ** attempt)
-            try:
-                with self.opener.open(request, timeout=20) as response:
-                    data = response.read(65_537)
-                if len(data) > 65_536:
-                    raise Failure("invalid TypeSafe response")
-                return self.validate(data)
-            except urllib.error.HTTPError as error:
-                code = error.code
-                retry = error.headers.get("Retry-After")
-                error.close()
-                if code in (401, 403):
-                    raise StopSearch("TypeSafe authentication failed; check typesafe_api_key") from None
-                if code not in (429, 529, 500, 502, 503, 504):
-                    raise Failure(f"TypeSafe request failed (HTTP {code})") from None
-                reason = f"TypeSafe request failed (HTTP {code})"
-                if retry:
-                    try:
-                        delay = max(0.0, float(int(retry)))
-                    except (ValueError, OverflowError):
-                        try:
-                            delay = max(0.0, email.utils.parsedate_to_datetime(retry).timestamp() - time.time())
-                        except (ValueError, TypeError, OverflowError):
-                            pass
-            except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError):
-                reason = "TypeSafe connection failed or timed out"
-            if attempt == 2 or delay > 30:
-                raise Failure(reason)
-            time.sleep(delay)
-        raise AssertionError("unreachable")
+        self.budget.take()
 
-    def validate(self, data):
+    async def before_response(self, response):
+        if response.status_code in (401, 403):
+            raise StopSearch("TypeSafe authentication failed; check typesafe_api_key")
+        # Request identity encoding and reject compression before decoding can expand it.
+        if response.headers.get("Content-Encoding", "identity").strip().lower() != "identity":
+            raise Failure("invalid TypeSafe response")
+        if response.is_stream_consumed:  # Custom transports can return buffered bodies.
+            if len(response.content) > MAX_RESPONSE_BYTES:
+                raise Failure("invalid TypeSafe response")
+        else:
+            response.stream = LimitedResponseStream(response.stream)
+
+    @property
+    def attempts(self):
+        return self.budget.attempts
+
+    async def aclose(self):
+        await self.client.aclose()
+
+    async def evaluate(self, query, content):
         try:
-            value = json.loads(data)
-            answer = value["answers"]["matches"]
-            p = answer["noul"]
-            usage = value["usage"]
-            valid = (value["model"] == MODEL and set(value["answers"]) == {"matches"}
-                     and answer["type"] == "noul" and type(p) in (int, float)
+            response = await self.client.system_one(
+                state={"content": content},
+                questions={"matches": Noul(instructions={
+                    "task": INSTRUCTION, "retrieval_criterion": query,
+                })},
+            )
+        except TypeSafeAPIResponseValidationError:
+            raise Failure("invalid TypeSafe response") from None
+        except TypeSafeAPIError as error:
+            raise Failure(f"TypeSafe request failed (HTTP {error.status})") from None
+        except TypeSafeAPIConnectionError:
+            raise Failure("TypeSafe connection failed or timed out") from None
+        except TypeSafeError:
+            raise Failure("TypeSafe request failed") from None
+        return self.validate(response)
+
+    def validate(self, response):
+        # The SDK validates types. These checks enforce jfind's stricter contract.
+        try:
+            p = response.nouls["matches"].noul
+            usage = response.usage
+            valid = (response.model == MODEL and set(response.answers) == {"matches"}
                      and math.isfinite(p) and 0 <= p <= 1
-                     and all(type(usage[k]) is int and usage[k] >= 0
-                             for k in ("input_tokens", "output_tokens")))
+                     and all(type(n) is int and n >= 0
+                             for n in (usage.input_tokens, usage.output_tokens)))
             if not valid:
                 raise ValueError()
-        except (ValueError, TypeError, KeyError, UnicodeError, RecursionError, OverflowError):
+        except (ValueError, TypeError, KeyError):
             raise Failure("invalid TypeSafe response") from None
-        self.input_tokens += usage["input_tokens"]
-        self.output_tokens += usage["output_tokens"]
+        self.budget.evaluated += 1
+        self.budget.input_tokens += usage.input_tokens
+        self.budget.output_tokens += usage.output_tokens
         return p
 
 
@@ -175,14 +228,25 @@ def read_text(path):
         text = data.decode("utf-8-sig")
     except UnicodeError:
         return None
-    if any("-----BEGIN " in line and "PRIVATE KEY-----" in line for line in text.splitlines()):
+    if re.search(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----", text):
         return None
     return text or None
 
 
-def path_records(stream, delimiter):
+def path_records(stream, delimiter, stopped=None):
     pending = b""
+    poll = None
+    if stopped is not None:
+        try:
+            poll = select.poll()
+            poll.register(stream.fileno(), select.POLLIN)
+        except (OSError, ValueError):
+            poll = None
     while True:
+        if stopped is not None and stopped.is_set():
+            return
+        if poll is not None and not poll.poll(100):
+            continue
         chunk = stream.read1(8192)
         if not chunk:
             if pending:
@@ -199,13 +263,15 @@ def path_records(stream, delimiter):
             raise Failure("stdin path exceeds 64 KiB")
 
 
-def candidates(roots, stdin, null, report):
+def candidates(roots, stdin, null, report, stopped=None):
     if not roots:
         if not stdin.isatty():
-            yield from path_records(stdin, b"\0" if null else b"\n")
+            yield from path_records(stdin, b"\0" if null else b"\n", stopped)
             return
         roots = ["."]
     for root in map(os.fsencode, roots):
+        if stopped is not None and stopped.is_set():
+            return
         if excluded(root):
             continue
         try:
@@ -216,6 +282,8 @@ def candidates(roots, stdin, null, report):
         if stat.S_ISDIR(mode):
             for directory, dirs, files in os.walk(root, followlinks=False,
                     onerror=lambda e: report(os.fsencode(e.filename or root), "cannot read directory")):
+                if stopped is not None and stopped.is_set():
+                    return
                 dirs[:] = [d for d in dirs if not excluded(os.path.join(directory, d))]
                 for filename in files:
                     yield os.path.join(directory, filename)
@@ -244,11 +312,162 @@ def positive(value):
     return n
 
 
+def workers(value):
+    n = positive(value)
+    if n > 32:
+        raise argparse.ArgumentTypeError("must be between 1 and 32")
+    return n
+
+
 def threshold(value):
     p = float(value)
     if not math.isfinite(p) or not 0 < p <= 1:
         raise argparse.ArgumentTypeError("must be a finite number in (0, 1]")
     return p
+
+
+async def evaluations(args, stdin, stdout, budget):
+    """Bound work through ordered output, while a pipe producer can wait for input."""
+    pending = queue.Queue(maxsize=args.jobs + 1)  # Includes the end-of-input marker.
+    slots = threading.Semaphore(args.jobs)
+    changed = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    tasks = set()
+    client = None
+
+    async def evaluate(path, reason):
+        nonlocal client
+        task = asyncio.current_task()
+        tasks.add(task)
+        try:
+            if budget.stopped.is_set():
+                raise Cancelled()
+            if reason is not None:
+                raise Failure(reason)
+            if b"\0" in path:
+                raise Failure("NUL in path; use -0 for NUL-delimited input")
+            content = await asyncio.to_thread(read_text, path)
+            if content is None:
+                return None
+            if client is None:
+                client = Jev(os.environ.get("typesafe_api_key"), args.max_requests,
+                             budget=budget, jobs=args.jobs)
+            return await client.evaluate(args.query, content)
+        except StopSearch as error:
+            if not isinstance(error, RequestLimit):
+                budget.fail(path, error)
+            raise
+        finally:
+            tasks.discard(task)
+            changed.set()
+
+    def publish(path, reason=None):
+        while not budget.stopped.is_set():
+            if slots.acquire(timeout=0.1):
+                break
+        else:
+            return False
+        if budget.stopped.is_set():
+            slots.release()
+            return False
+        future = asyncio.run_coroutine_threadsafe(evaluate(path, reason), loop)
+        pending.put((path, future))
+        loop.call_soon_threadsafe(changed.set)
+        return True
+
+    def produce():
+        try:
+            for path in candidates(args.paths, stdin, args.null, publish, budget.stopped):
+                if not publish(path):
+                    break
+        except Failure as error:
+            publish(b"stdin", str(error))
+        except OSError:
+            publish(b"stdin", "cannot read input")
+        finally:
+            pending.put(None)
+            loop.call_soon_threadsafe(changed.set)
+
+    async def wait_for_change():
+        # Wake for pipe closure too, even with no input or completed network request.
+        try:
+            await asyncio.wait_for(changed.wait(), timeout=0.1)
+        except asyncio.TimeoutError:
+            pass
+
+    producer = threading.Thread(target=produce, name="jfind-input", daemon=True)
+    producer.start()
+    try:
+        while True:
+            changed.clear()
+            if pipe_closed(stdout):
+                return
+            if budget.fatal is not None:
+                yield budget.fatal
+                return
+            try:
+                item = pending.get_nowait()
+            except queue.Empty:
+                await wait_for_change()
+                continue
+            if item is None:
+                return
+            path, future = item
+            try:
+                while not future.done():
+                    changed.clear()
+                    if pipe_closed(stdout):
+                        return
+                    if budget.fatal is not None:
+                        yield budget.fatal
+                        return
+                    if not future.done():
+                        await wait_for_change()
+                yield path, future.result()
+            except Cancelled:
+                if budget.fatal is not None:
+                    yield budget.fatal
+                return
+            except Failure as error:
+                yield path, error
+                if isinstance(error, StopSearch):
+                    return
+            except OSError:
+                yield path, Failure("cannot read file safely")
+            finally:
+                slots.release()
+    finally:
+        budget.stopped.set()
+        await asyncio.to_thread(producer.join)
+        active = list(tasks)
+        for task in active:
+            task.cancel()
+        await asyncio.gather(*active, return_exceptions=True)
+        if client is not None:
+            await client.aclose()
+
+
+async def run_search(args, stdin, stdout, stderr):
+    budget = Budget(args.max_requests)
+    failed = False
+    try:
+        async with contextlib.aclosing(evaluations(args, stdin, stdout, budget)) as results:
+            async for path, result in results:
+                if isinstance(result, Failure):
+                    failed = True
+                    print(f"jfind: {display(path)}: {result}", file=stderr)
+                    continue
+                if result is not None and result >= args.threshold:
+                    rendered = path if args.null or not stdout.isatty() else display(path).encode()
+                    stdout.write(rendered + (b"\0" if args.null else b"\n"))
+                    stdout.flush()
+    finally:
+        if args.stats:
+            print("jfind: stats " + json.dumps({
+                "http_attempts": budget.attempts, "evaluated_files": budget.evaluated,
+                "input_tokens": budget.input_tokens, "output_tokens": budget.output_tokens,
+            }), file=stderr)
+    return 1 if failed else 0
 
 
 def main(argv=None, *, stdin=None, stdout=None, stderr=None):
@@ -265,6 +484,9 @@ def main(argv=None, *, stdin=None, stdout=None, stderr=None):
                         help="minimum match probability (default: 0.5)")
     parser.add_argument("--max-requests", type=positive, default=512, metavar="N",
                         help="HTTP attempt limit including retries (default: 512)")
+    parser.add_argument("--jobs", type=workers, default=4, metavar="N",
+                        help="concurrent file evaluations, 1–32 (default: 4)")
+    parser.add_argument("--stats", action="store_true", help="print HTTP attempts and reported token usage to stderr")
     parser.add_argument("--version", action="version", version="jfind " + VERSION)
     args = parser.parse_args(argv)
     try:
@@ -273,44 +495,9 @@ def main(argv=None, *, stdin=None, stdout=None, stderr=None):
         parser.error("QUERY must be valid UTF-8")
     if not args.query.strip() or len(query_bytes) > 4096:
         parser.error("QUERY must contain 1–4096 UTF-8 bytes")
-    failed = False
-    client = None
-
-    def report(path, reason):
-        nonlocal failed
-        failed = True
-        print(f"jfind: {display(path)}: {reason}", file=stderr)
-
-    try:
-        for path in candidates(args.paths, stdin, args.null, report):
-            if pipe_closed(stdout):
-                return 0
-            if b"\0" in path:
-                report(path, "NUL in path; use -0 for NUL-delimited input")
-                continue
-            try:
-                content = read_text(path)
-                if content is None:
-                    continue
-                if client is None:
-                    client = Jev(os.environ.get("typesafe_api_key"), args.max_requests)
-                matched = client.evaluate(args.query, content) >= args.threshold
-            except StopSearch as error:
-                report(path, str(error))
-                break
-            except Failure as error:
-                report(path, str(error))
-                continue
-            except OSError:
-                report(path, "cannot read file safely")
-                continue
-            if matched:
-                rendered = path if args.null or not stdout.isatty() else display(path).encode()
-                stdout.write(rendered + (b"\0" if args.null else b"\n"))
-                stdout.flush()
-    except Failure as error:
-        report(b"stdin", str(error))
-    return 1 if failed else 0
+    if pipe_closed(stdout):
+        return 0
+    return asyncio.run(run_search(args, stdin, stdout, stderr))
 
 
 if __name__ == "__main__":
